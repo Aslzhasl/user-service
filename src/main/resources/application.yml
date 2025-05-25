@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: user-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/user_service
+    username: postgres
+    password: 1234
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+
+      kafka:
+        producer:
+        consumer:
+          bootstrap-servers: localhost:9092
+          group-id: user-service
+          key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+          value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+          properties:
+            spring.json.trusted.packages: org.userservice.messaging
+  mail:
+    host: live.smtp.mailtrap.io       # your SMTP host
+    port: 587                    # SMTP port (587 for STARTTLS, 465 for SSL)
+    username: smtp@mailtrap.io  # SMTP username
+    password:  <YOUR_API_TOKEN>        # SMTP password
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+security:
+  jwt:
+    secret: verylongrandomstringyouwritehere-and-never-commit-an-obvious-password
+    expiration: 3600
