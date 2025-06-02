@@ -3,15 +3,13 @@ package org.userservice.security;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import java.security.Key;
-import java.time.Duration;
 import java.time.Instant;
-import java.util.Date;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.*;
 
 @Component
 public class JwtTokenProvider implements IJwtTokenProvider {
@@ -19,7 +17,7 @@ public class JwtTokenProvider implements IJwtTokenProvider {
     @Value("${security.jwt.secret}")
     private String secretKey;
 
-    @Value("${security.jwt.expiration}")    // e.g. 3600 (seconds)
+    @Value("${security.jwt.expiration}")
     private long validityInSeconds;
 
     private Key key;
@@ -29,28 +27,35 @@ public class JwtTokenProvider implements IJwtTokenProvider {
         key = Keys.hmacShaKeyFor(secretKey.getBytes());
     }
 
+    // Реализация интерфейса
     @Override
-    public String generateToken(String subject, Set<String> roles) {
-        Instant now = Instant.now();
-        Instant expiry = now.plus(Duration.ofSeconds(validityInSeconds));
+    public String generateToken(UserDetails userDetails, List<String> roles) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + validityInSeconds * 1000);
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("sub", userDetails.getUsername());
+        claims.put("roles", roles);
 
         return Jwts.builder()
-                .setSubject(subject)
-                .claim("roles", roles)
-                .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(expiry))
-                .signWith(key, SignatureAlgorithm.HS256)
+                .setClaims(claims)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .signWith(key, SignatureAlgorithm.HS512)
                 .compact();
     }
+
+
+    // Можно оставить, если где-то еще используешь по id + ролям
+
+
 
     @Override
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder().setSigningKey(key).build()
-                    .parseClaimsJws(token);
+            Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
             return true;
         } catch (JwtException | IllegalArgumentException e) {
-            // log or rethrow as needed
             return false;
         }
     }

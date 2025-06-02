@@ -1,66 +1,59 @@
 package org.userservice.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.userservice.model.EmailVerificationToken;
 import org.userservice.model.User;
 import org.userservice.repository.EmailVerificationTokenRepository;
 import org.userservice.repository.UserRepository;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class VerificationServiceImpl implements IVerificationService {
 
-    private final EmailVerificationTokenRepository tokenRepo;
-    private final UserRepository userRepo;
-    private final IKafkaPublisher kafkaPublisher;
-    private final EmailService emailService;
-
-    /** tokens valid for 24h */
-    private final Duration validity = Duration.ofHours(24);
+    private final EmailVerificationTokenRepository tokenRepository;
+    private final UserRepository userRepository;
+    private final JavaMailSender mailSender;
 
     @Override
     public void createVerificationToken(User user) {
-        tokenRepo.deleteByUser(user);
-
+        // 1. Генерируем токен
         String token = UUID.randomUUID().toString();
-        Instant expires = Instant.now().plus(validity);
-
-        EmailVerificationToken evt = new EmailVerificationToken();
-        evt.setToken(token);
-        evt.setUser(user);
-        evt.setExpiresAt(expires);
-        tokenRepo.save(evt);
-
-        // still a no-op in no-kafka mode:
-        //kafkaPublisher.publishEmailVerification(user.getEmail(), token);
-
-        // ALWAYS send the actual e-mail:
-        String link = String.format(
-                "http://localhost:8080/api/users/verify?token=%s", token
+        EmailVerificationToken verificationToken = new EmailVerificationToken(
+                null, token, user, Instant.now().plus(1, ChronoUnit.DAYS)
         );
-       // emailService.sendVerificationEmail(user.getEmail(), link);
+        tokenRepository.save(verificationToken);
+
+        // 2. Ссылка для активации
+        String link = "http://localhost:8080/api/users/verify?token=" + token;
+
+        // 3. Отправляем email
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(user.getEmail());
+        message.setSubject("Email Verification");
+        message.setText("Please verify your email by clicking the link: " + link);
+        mailSender.send(message);
     }
 
     @Override
     public void verifyToken(String token) {
-        EmailVerificationToken evt = tokenRepo.findByToken(token)
-                .orElseThrow(() -> new IllegalArgumentException("Invalid verification token"));
+        EmailVerificationToken verificationToken = tokenRepository.findByToken(token)
+                .orElseThrow(() -> new RuntimeException("Token not found!"));
 
-        if (evt.getExpiresAt().isBefore(Instant.now())) {
-            throw new IllegalStateException("Verification token expired");
+        if (verificationToken.getExpiresAt().isBefore(Instant.now())) {
+            throw new RuntimeException("Token expired!");
         }
 
-        // enable the user and clean up
-        User u = evt.getUser();
-        u.setEnabled(true);
-        userRepo.save(u);
-        tokenRepo.delete(evt);
+        User user = verificationToken.getUser();
+        user.setEnabled(true);
+        userRepository.save(user);
+
+        tokenRepository.delete(verificationToken);
     }
 }

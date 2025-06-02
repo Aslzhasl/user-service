@@ -2,7 +2,7 @@ spring:
   application:
     name: user-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/user_service
+    url: jdbc:postgresql://34.45.98.93:5432/User-service
     username: postgres
     password: 1234
   jpa:
@@ -24,10 +24,10 @@ spring:
           properties:
             spring.json.trusted.packages: org.userservice.messaging
   mail:
-    host: live.smtp.mailtrap.io       # your SMTP host
-    port: 587                    # SMTP port (587 for STARTTLS, 465 for SSL)
-    username: smtp@mailtrap.io  # SMTP username
-    password:  <YOUR_API_TOKEN>        # SMTP password
+    host: smtp.gmail.com
+    port: 587
+    username: assg8218@gmail.com
+    password:  icft cdbo yixp wugr
     properties:
       mail:
         smtp:

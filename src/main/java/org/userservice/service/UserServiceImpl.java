@@ -2,6 +2,11 @@ package org.userservice.service;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,15 +16,14 @@ import org.userservice.model.Role;
 import org.userservice.model.User;
 import org.userservice.repository.RoleRepository;
 import org.userservice.repository.UserRepository;
+import org.userservice.repository.UserRoleRepository;
+import org.userservice.security.CustomUserDetails;
 import org.userservice.security.IJwtTokenProvider;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 
 import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,6 +38,8 @@ public class UserServiceImpl implements IUserService {
     private final IKafkaPublisher kafkaPublisher;
     private final IJwtTokenProvider jwtTokenProvider;// assume you defined this interface
     private final IVerificationService verificationService;
+    private final AuthenticationManager authenticationManager;
+    private final UserRoleRepository userRoleRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -61,51 +67,49 @@ public class UserServiceImpl implements IUserService {
     }
     @Override
     public UserResponseDto register(UserRegistrationDto dto) {
-        // 1. Map to entity
-        User user = userMapper.toEntity(dto);
-
-        // 2. Hash password
+        User user = new User();
+        user.setEmail(dto.getEmail());
         user.setPassword(passwordEncoder.encode(dto.getPassword()));
+        user.setFirstName(dto.getFirstName());
+        user.setLastName(dto.getLastName());
+        user.setEnabled(false);
 
-        // 3. Assign default role
-        Role userRole = roleRepository.findByName("ROLE_USER")
-                .orElseThrow(() -> new IllegalStateException("Default role not found"));
-        Set<Role> roles = new HashSet<>();
-        roles.add(userRole);
-        user.setRoles(roles);
+        userRepository.save(user);
 
-        // 4. Persist
-        user = userRepository.save(user);
+        // Вот тут вызов:
+        verificationService.createVerificationToken(user);
 
-        // 5. Publish event (email + raw password, or token reset link)
-        kafkaPublisher.publishAuthUserCreated(user.getEmail(), dto.getPassword());
-
-        // 6. Return DTO
-         User saved = userRepository.save(user);
-        verificationService.createVerificationToken(saved);
         return userMapper.toDto(user);
-    }
-
-    @Override
+    }@Override
     public AuthTokenDto login(UserLoginDto dto) {
+        // 1. Аутентифицируем пользователя
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(dto.getEmail(), dto.getPassword())
+        );
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        // 2. Получаем UserDetails (Spring Security)
+        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+
+        // 3. Получаем User из репозитория (чтобы получить ID)
         User user = userRepository.findByEmail(dto.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid credentials"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
-            throw new IllegalArgumentException("Invalid credentials");
-        }
+        // 4. Получаем роли как список строк
+        List<String> roleNames = userRoleRepository.findRoleNamesByUserId(user.getId());
 
-        // Map Set<Role> → Set<String>
-        Set<String> roleNames = user.getRoles().stream()
-                .map(Role::getName)
-                .collect(Collectors.toSet());
+        // 5. Генерируем JWT-токен (используем userDetails и список ролей)
+        String token = jwtTokenProvider.generateToken(userDetails, roleNames);
 
-        // Now this matches IJwtTokenProvider.generateToken(...)
-         String token = jwtTokenProvider.generateToken(user.getId().toString(), roleNames);
+        // 6. Достаем время истечения токена
         Instant expiry = jwtTokenProvider.getExpiryFromToken(token);
 
-        return new AuthTokenDto(token, expiry);
+        // 7. Возвращаем DTO с токеном, временем жизни и ролями
+        return new AuthTokenDto(token, expiry, roleNames);
     }
+
+
+
 
     @Override
     @Transactional(readOnly = true)
