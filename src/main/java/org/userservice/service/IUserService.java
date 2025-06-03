@@ -8,8 +8,9 @@ import org.userservice.dto.UserLoginDto;
 import java.util.List;
 import java.util.UUID;
 public interface IUserService {
+    UserResponseDto register(UserRegistrationDto dto);
     // existing methods…
-    UserResponseDto register(UserRegistrationDto registration);
+   // AuthTokenDto register(UserRegistrationDto registration);
     AuthTokenDto login(UserLoginDto login);
     UserResponseDto getById(UUID userId);
     UserResponseDto update(UUID userId, UserRegistrationDto updates);

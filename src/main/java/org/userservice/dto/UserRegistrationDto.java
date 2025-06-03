@@ -20,5 +20,7 @@ public class UserRegistrationDto {
 
     @NotBlank
     private String lastName;
+
+    private String role;
 }
 

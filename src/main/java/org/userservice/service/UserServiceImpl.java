@@ -14,10 +14,11 @@ import org.userservice.dto.*;
 import org.userservice.mapper.UserMapper;
 import org.userservice.model.Role;
 import org.userservice.model.User;
+import org.userservice.model.UserRole;
 import org.userservice.repository.RoleRepository;
 import org.userservice.repository.UserRepository;
 import org.userservice.repository.UserRoleRepository;
-import org.userservice.security.CustomUserDetails;
+import org.userservice.security.CustomUserDetailsService;
 import org.userservice.security.IJwtTokenProvider;
 
 import java.util.*;
@@ -40,6 +41,7 @@ public class UserServiceImpl implements IUserService {
     private final IVerificationService verificationService;
     private final AuthenticationManager authenticationManager;
     private final UserRoleRepository userRoleRepository;
+    private final CustomUserDetailsService customUserDetailsService;
 
     @Override
     @Transactional(readOnly = true)
@@ -66,21 +68,53 @@ public class UserServiceImpl implements IUserService {
         return userMapper.toDto(saved);
     }
     @Override
+    @Transactional
     public UserResponseDto register(UserRegistrationDto dto) {
-        User user = new User();
-        user.setEmail(dto.getEmail());
-        user.setPassword(passwordEncoder.encode(dto.getPassword()));
-        user.setFirstName(dto.getFirstName());
-        user.setLastName(dto.getLastName());
-        user.setEnabled(false);
+        // 1) Проверяем, что пользователя с таким email нет
+        Optional<User> maybeExisting = userRepository.findByEmail(dto.getEmail());
+        if (maybeExisting.isPresent()) {
+            throw new RuntimeException("Пользователь с email " + dto.getEmail() + " уже существует");
+        }
 
-        userRepository.save(user);
+        // 2) Хешируем пароль
+        String encodedPassword = passwordEncoder.encode(dto.getPassword());
 
-        // Вот тут вызов:
-        verificationService.createVerificationToken(user);
+        // 3) Сохраняем базовую сущность User
+        User newUser = new User();
+        newUser.setEmail(dto.getEmail());
+        newUser.setPassword(encodedPassword);
+        newUser.setFirstName(dto.getFirstName());
+        newUser.setLastName(dto.getLastName());
+        newUser.setEnabled(false); // или true, если не требуете email верификации
+        User savedUser = userRepository.save(newUser);
 
-        return userMapper.toDto(user);
-    }@Override
+        // 4) Определяем роль
+        String requestedRole = dto.getRole();
+        String roleName = (requestedRole == null || requestedRole.isBlank())
+                ? "USER"
+                : requestedRole.toUpperCase();
+
+        // 5) Ищем в БД сущность Role по roleName
+        Role roleEntity = roleRepository.findByName(roleName)
+                .orElseThrow(() -> new RuntimeException("Роль не найдена: " + roleName));
+
+        // 6) Создаём запись в user_roles
+        UserRole userRole = new UserRole();
+        userRole.setUser(savedUser);
+        userRole.setRole(roleEntity);
+        userRoleRepository.save(userRole);
+
+        // 7) Собираем список ролей (если надо)
+        List<String> roleNames = userRoleRepository.findRoleNamesByUserId(savedUser.getId());
+
+        // 8) Возвращаем UserResponseDto
+        // Можно вернуть только нужные поля (email, имя, фамилия, id, roles)
+        return new UserResponseDto(savedUser,  roleNames);
+    }
+
+
+
+    @Override
     public AuthTokenDto login(UserLoginDto dto) {
         // 1. Аутентифицируем пользователя
         Authentication authentication = authenticationManager.authenticate(
@@ -138,4 +172,5 @@ public class UserServiceImpl implements IUserService {
                 .map(userMapper::toDto)
                 .collect(Collectors.toList());
     }
+
 }

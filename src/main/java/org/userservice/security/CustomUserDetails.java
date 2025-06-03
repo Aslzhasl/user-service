@@ -26,7 +26,7 @@ public class CustomUserDetails implements UserDetails {
         return user.getPassword();
     }
 
-    /** We’re using the UUID string as the username/subject */
+    //We’re using the UUID string as the username/subject */
     @Override
     public String getUsername() {
         return user.getId().toString();
@@ -47,7 +47,7 @@ public class CustomUserDetails implements UserDetails {
         return true;
     }
 
-    /** this drives whether login succeeds; tied to your email‐verified flag */
+    // this drives whether login succeeds; tied to your email‐verified flag */
     @Override
     public boolean isEnabled() {
         return user.isEnabled();
